@@ -16,8 +16,8 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSlider,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -110,6 +110,7 @@ class MainWindow(QMainWindow):
         self.original: np.ndarray | None = None
         self.mask: np.ndarray | None = None
         self.mask_source: np.ndarray | None = None
+        self.enhance_base: np.ndarray | None = None
         self.history: list[np.ndarray] = []
         self.future: list[np.ndarray] = []
 
@@ -137,6 +138,7 @@ class MainWindow(QMainWindow):
     def _tools(self) -> QWidget:
         panel = QFrame()
         panel.setObjectName("panel")
+        panel.setMinimumWidth(284)
         box = QVBoxLayout(panel)
         box.setSpacing(10)
         box.addWidget(QLabel("图像美化系统", objectName="title"))
@@ -150,26 +152,25 @@ class MainWindow(QMainWindow):
         self.contrast = self._slider(20, 220, 100)
         self.hue = self._slider(-90, 90, 0)
         self.saturation = self._slider(0, 220, 100)
-        box.addWidget(self._control("亮度", self.brightness))
-        box.addWidget(self._control("对比度", self.contrast))
-        box.addWidget(self._control("色相", self.hue))
-        box.addWidget(self._control("饱和度", self.saturation))
-        box.addWidget(self._button("应用增强", self.enhance))
+        box.addWidget(self._control("亮度", self.brightness, self.preview_enhancement))
+        box.addWidget(self._control("对比度", self.contrast, self.preview_enhancement))
+        box.addWidget(self._control("色相", self.hue, self.preview_enhancement))
+        box.addWidget(self._control("饱和度", self.saturation, self.preview_enhancement))
 
-        self.noise_amount = self._spin(1, 30, 4)
-        self.kernel_size = self._spin(3, 21, 5)
-        self.angle = self._spin(-180, 180, 15)
-        self.dx = self._spin(-300, 300, 35)
-        self.dy = self._spin(-300, 300, 25)
-        self.border_size = self._spin(1, 120, 24)
-        self.fog_strength = self._spin(0, 90, 28)
-        box.addWidget(self._number_control("噪声%", self.noise_amount))
-        box.addWidget(self._number_control("滤波核", self.kernel_size))
-        box.addWidget(self._number_control("角度", self.angle))
-        box.addWidget(self._number_control("平移X", self.dx))
-        box.addWidget(self._number_control("平移Y", self.dy))
-        box.addWidget(self._number_control("边框", self.border_size))
-        box.addWidget(self._number_control("雾化%", self.fog_strength))
+        self.noise_amount = self._slider(1, 30, 4)
+        self.kernel_size = self._slider(3, 21, 5)
+        self.angle = self._slider(-180, 180, 15)
+        self.dx = self._slider(-300, 300, 35)
+        self.dy = self._slider(-300, 300, 25)
+        self.border_size = self._slider(1, 120, 24)
+        self.fog_strength = self._slider(0, 90, 28)
+        box.addWidget(self._control("噪声%", self.noise_amount))
+        box.addWidget(self._control("滤波核", self.kernel_size))
+        box.addWidget(self._control("角度", self.angle))
+        box.addWidget(self._control("平移X", self.dx))
+        box.addWidget(self._control("平移Y", self.dy))
+        box.addWidget(self._control("边框", self.border_size))
+        box.addWidget(self._control("雾化%", self.fog_strength))
 
         grid = QGridLayout()
         actions = [
@@ -200,8 +201,13 @@ class MainWindow(QMainWindow):
         for i, (text, fn) in enumerate(actions):
             grid.addWidget(self._button(text, fn), i // 2, i % 2)
         box.addLayout(grid)
-        box.addStretch()
-        return panel
+        scroll = QScrollArea()
+        scroll.setObjectName("toolScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(panel)
+        scroll.setFixedWidth(306)
+        return scroll
 
     def _row(self, a: str, fa, b: str, fb) -> QHBoxLayout:
         row = QHBoxLayout()
@@ -211,6 +217,7 @@ class MainWindow(QMainWindow):
 
     def _button(self, text: str, fn) -> QPushButton:
         btn = QPushButton(text)
+        btn.setMinimumHeight(30)
         btn.clicked.connect(fn)
         return btn
 
@@ -220,31 +227,21 @@ class MainWindow(QMainWindow):
         slider.setValue(value)
         return slider
 
-    def _spin(self, lo: int, hi: int, value: int) -> QSpinBox:
-        spin = QSpinBox()
-        spin.setRange(lo, hi)
-        spin.setValue(value)
-        return spin
-
-    def _control(self, text: str, slider: QSlider) -> QWidget:
+    def _control(self, text: str, slider: QSlider, changed=None) -> QWidget:
         w = QWidget()
         row = QHBoxLayout(w)
         row.setContentsMargins(0, 0, 0, 0)
         label = QLabel(text)
+        label.setMinimumWidth(52)
         value = QLabel()
+        value.setMinimumWidth(34)
         slider.valueChanged.connect(lambda v: value.setText(str(v)))
+        if changed:
+            slider.valueChanged.connect(lambda _v: changed())
         value.setText(str(slider.value()))
         row.addWidget(label)
         row.addWidget(slider)
         row.addWidget(value)
-        return w
-
-    def _number_control(self, text: str, spin: QSpinBox) -> QWidget:
-        w = QWidget()
-        row = QHBoxLayout(w)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.addWidget(QLabel(text))
-        row.addWidget(spin)
         return w
 
     def _style(self):
@@ -252,6 +249,7 @@ class MainWindow(QMainWindow):
             """
             QMainWindow, QWidget { background: #101419; color: #edf2f4; font-family: "Microsoft YaHei"; font-size: 14px; }
             QMenuBar, QMenu { background: #151b22; color: #edf2f4; }
+            #toolScroll { border: 1px solid #263443; border-radius: 8px; background: #171f28; }
             #panel { background: #171f28; border: 1px solid #263443; border-radius: 8px; padding: 14px; }
             #canvas { background: #0b0f14; border: 1px solid #2a3847; border-radius: 8px; color: #8fa3b5; font-size: 20px; }
             #title { font-size: 24px; font-weight: 700; color: #ffffff; padding-bottom: 2px; }
@@ -275,6 +273,7 @@ class MainWindow(QMainWindow):
             self.history.append(self.current.copy())
             self.history = self.history[-20:]
             self.future.clear()
+            self.enhance_base = None
         self.current = img
         self.canvas.set_image(self.current)
         if status:
@@ -285,6 +284,7 @@ class MainWindow(QMainWindow):
             self.status.setText("没有可撤销的操作")
             return
         self.future.append(self.current.copy())
+        self.enhance_base = None
         self.current = self.history.pop()
         self.canvas.set_image(self.current)
         self.status.setText("已撤销")
@@ -294,6 +294,7 @@ class MainWindow(QMainWindow):
             self.status.setText("没有可重做的操作")
             return
         self.history.append(self.current.copy())
+        self.enhance_base = None
         self.current = self.future.pop()
         self.canvas.set_image(self.current)
         self.status.setText("已重做")
@@ -328,6 +329,7 @@ class MainWindow(QMainWindow):
             self.original = self.current.copy()
             self.mask = None
             self.mask_source = None
+            self.enhance_base = None
             self.history.clear()
             self.future.clear()
             self.canvas.set_image(self.current)
@@ -348,6 +350,7 @@ class MainWindow(QMainWindow):
             self.set_current(self.original.copy(), "已恢复原图")
             self.mask = None
             self.mask_source = None
+            self.enhance_base = None
 
     def apply(self, fn):
         if not self.require_image():
@@ -357,11 +360,18 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, "处理失败", str(exc))
 
-    def enhance(self):
-        def run(img):
-            out = ops.adjust_brightness_contrast(img, self.brightness.value(), self.contrast.value() / 100)
-            return ops.adjust_hsv(out, self.hue.value(), self.saturation.value() / 100) if out.ndim == 3 else out
-        self.apply(run)
+    def preview_enhancement(self):
+        if self.current is None:
+            return
+        if self.enhance_base is None:
+            self.enhance_base = self.current.copy()
+            self.history.append(self.current.copy())
+            self.history = self.history[-20:]
+            self.future.clear()
+        out = ops.adjust_brightness_contrast(self.enhance_base, self.brightness.value(), self.contrast.value() / 100)
+        if out.ndim == 3:
+            out = ops.adjust_hsv(out, self.hue.value(), self.saturation.value() / 100)
+        self.set_current(out, "增强参数已实时预览", remember=False)
 
     def crop_selection(self):
         rect = self.canvas.selected_rect_on_image()
