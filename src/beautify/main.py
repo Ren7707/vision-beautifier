@@ -217,7 +217,7 @@ class MainWindow(QMainWindow):
 
     def _button(self, text: str, fn) -> QPushButton:
         btn = QPushButton(text)
-        btn.setMinimumHeight(30)
+        btn.setMinimumHeight(40)
         btn.clicked.connect(fn)
         return btn
 
@@ -247,18 +247,23 @@ class MainWindow(QMainWindow):
     def _style(self):
         self.setStyleSheet(
             """
-            QMainWindow, QWidget { background: #101419; color: #edf2f4; font-family: "Microsoft YaHei"; font-size: 14px; }
+            QMainWindow, QWidget { background: #101419; color: #edf2f4; font-family: "Microsoft YaHei UI", "Microsoft YaHei"; font-size: 14px; }
             QMenuBar, QMenu { background: #151b22; color: #edf2f4; }
             #toolScroll { border: 1px solid #263443; border-radius: 8px; background: #171f28; }
             #panel { background: #171f28; border: 1px solid #263443; border-radius: 8px; padding: 14px; }
             #canvas { background: #0b0f14; border: 1px solid #2a3847; border-radius: 8px; color: #8fa3b5; font-size: 20px; }
             #title { font-size: 24px; font-weight: 700; color: #ffffff; padding-bottom: 2px; }
             #status { color: #8fa3b5; padding-bottom: 8px; }
-            QPushButton { background: #233142; border: 1px solid #31465c; border-radius: 6px; padding: 9px 10px; color: #f6fbff; }
+            QPushButton { background: #233142; border: 1px solid #31465c; border-radius: 6px; padding: 8px 10px 10px 10px; color: #f6fbff; font-size: 15px; min-height: 40px; }
             QPushButton:hover { background: #2d4258; border-color: #57c7ff; }
             QPushButton:pressed { background: #1b2836; }
             QSlider::groove:horizontal { height: 5px; background: #263443; border-radius: 2px; }
             QSlider::handle:horizontal { background: #57c7ff; width: 16px; margin: -6px 0; border-radius: 8px; }
+            QScrollBar:vertical { background: #121922; width: 10px; margin: 8px 2px 8px 0; border-radius: 5px; }
+            QScrollBar::handle:vertical { background: #38546d; min-height: 48px; border-radius: 5px; }
+            QScrollBar::handle:vertical:hover { background: #57c7ff; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; border: none; background: transparent; }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
             """
         )
 
