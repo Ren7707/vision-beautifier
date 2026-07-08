@@ -59,6 +59,15 @@ class OpsTest(unittest.TestCase):
         self.assertEqual(out.shape, (100, 256, 3))
         self.assertEqual(out.dtype, np.uint8)
 
+    def test_rotate_changes_non_uniform_image(self):
+        img = np.zeros((40, 40, 3), dtype=np.uint8)
+        img[8:32, 18:22] = 255
+
+        out = ops.rotate(img, 30)
+
+        self.assertEqual(out.shape, img.shape)
+        self.assertFalse(np.array_equal(out, img))
+
 
 if __name__ == "__main__":
     unittest.main()

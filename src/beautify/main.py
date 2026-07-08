@@ -111,6 +111,8 @@ class MainWindow(QMainWindow):
         self.mask: np.ndarray | None = None
         self.mask_source: np.ndarray | None = None
         self.enhance_base: np.ndarray | None = None
+        self.rotation_base: np.ndarray | None = None
+        self.rotation_sign = 1
         self.history: list[np.ndarray] = []
         self.future: list[np.ndarray] = []
 
@@ -166,7 +168,7 @@ class MainWindow(QMainWindow):
         self.fog_strength = self._slider(0, 90, 28)
         box.addWidget(self._control("噪声%", self.noise_amount))
         box.addWidget(self._control("滤波核", self.kernel_size))
-        box.addWidget(self._control("角度", self.angle))
+        box.addWidget(self._control("角度", self.angle, self.preview_rotation))
         box.addWidget(self._control("平移X", self.dx))
         box.addWidget(self._control("平移Y", self.dy))
         box.addWidget(self._control("边框", self.border_size))
@@ -180,8 +182,8 @@ class MainWindow(QMainWindow):
             ("均值滤波", lambda: self.apply(lambda x: ops.denoise(x, "mean", self.kernel_size.value()))),
             ("中值滤波", lambda: self.apply(lambda x: ops.denoise(x, "median", self.kernel_size.value()))),
             ("高斯滤波", lambda: self.apply(lambda x: ops.denoise(x, "gaussian", self.kernel_size.value()))),
-            ("左旋", lambda: self.apply(lambda x: ops.rotate(x, self.angle.value()))),
-            ("右旋", lambda: self.apply(lambda x: ops.rotate(x, -self.angle.value()))),
+            ("左旋", lambda: self.start_rotation(1)),
+            ("右旋", lambda: self.start_rotation(-1)),
             ("水平镜像", lambda: self.apply(lambda x: ops.flip(x, "horizontal"))),
             ("垂直镜像", lambda: self.apply(lambda x: ops.flip(x, "vertical"))),
             ("平移", lambda: self.apply(lambda x: ops.translate(x, self.dx.value(), self.dy.value()))),
@@ -279,6 +281,7 @@ class MainWindow(QMainWindow):
             self.history = self.history[-20:]
             self.future.clear()
             self.enhance_base = None
+            self.rotation_base = None
         self.current = img
         self.canvas.set_image(self.current)
         if status:
@@ -290,6 +293,7 @@ class MainWindow(QMainWindow):
             return
         self.future.append(self.current.copy())
         self.enhance_base = None
+        self.rotation_base = None
         self.current = self.history.pop()
         self.canvas.set_image(self.current)
         self.status.setText("已撤销")
@@ -300,6 +304,7 @@ class MainWindow(QMainWindow):
             return
         self.history.append(self.current.copy())
         self.enhance_base = None
+        self.rotation_base = None
         self.current = self.future.pop()
         self.canvas.set_image(self.current)
         self.status.setText("已重做")
@@ -335,6 +340,7 @@ class MainWindow(QMainWindow):
             self.mask = None
             self.mask_source = None
             self.enhance_base = None
+            self.rotation_base = None
             self.history.clear()
             self.future.clear()
             self.canvas.set_image(self.current)
@@ -356,6 +362,7 @@ class MainWindow(QMainWindow):
             self.mask = None
             self.mask_source = None
             self.enhance_base = None
+            self.rotation_base = None
 
     def apply(self, fn):
         if not self.require_image():
@@ -368,6 +375,7 @@ class MainWindow(QMainWindow):
     def preview_enhancement(self):
         if self.current is None:
             return
+        self.rotation_base = None
         if self.enhance_base is None:
             self.enhance_base = self.current.copy()
             self.history.append(self.current.copy())
@@ -377,6 +385,24 @@ class MainWindow(QMainWindow):
         if out.ndim == 3:
             out = ops.adjust_hsv(out, self.hue.value(), self.saturation.value() / 100)
         self.set_current(out, "增强参数已实时预览", remember=False)
+
+    def start_rotation(self, sign: int):
+        if not self.require_image():
+            return
+        self.enhance_base = None
+        if self.rotation_base is None:
+            self.rotation_base = self.current.copy()
+            self.history.append(self.current.copy())
+            self.history = self.history[-20:]
+            self.future.clear()
+        self.rotation_sign = sign
+        self.preview_rotation()
+
+    def preview_rotation(self):
+        if self.rotation_base is None:
+            return
+        angle = self.angle.value() * self.rotation_sign
+        self.set_current(ops.rotate(self.rotation_base, angle), "旋转角度已实时预览", remember=False)
 
     def crop_selection(self):
         rect = self.canvas.selected_rect_on_image()
