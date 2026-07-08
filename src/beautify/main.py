@@ -109,6 +109,9 @@ class MainWindow(QMainWindow):
         self.current: np.ndarray | None = None
         self.original: np.ndarray | None = None
         self.mask: np.ndarray | None = None
+        self.mask_source: np.ndarray | None = None
+        self.history: list[np.ndarray] = []
+        self.future: list[np.ndarray] = []
 
         self.canvas = ImageCanvas()
         self.status = QLabel("支持 BMP / JPG / PNG")
@@ -140,6 +143,8 @@ class MainWindow(QMainWindow):
         box.addWidget(self.status)
         box.addLayout(self._row("打开图片", self.open_image, "保存结果", self.save_image))
         box.addLayout(self._row("恢复原图", self.restore, "灰度读取", self.open_gray))
+        box.addLayout(self._row("撤销", self.undo, "重做", self.redo))
+        box.addLayout(self._row("原图对比", self.show_compare, "直方图", self.show_histogram))
 
         self.brightness = self._slider(-120, 120, 0)
         self.contrast = self._slider(20, 220, 100)
@@ -151,26 +156,43 @@ class MainWindow(QMainWindow):
         box.addWidget(self._control("饱和度", self.saturation))
         box.addWidget(self._button("应用增强", self.enhance))
 
+        self.noise_amount = self._spin(1, 30, 4)
+        self.kernel_size = self._spin(3, 21, 5)
+        self.angle = self._spin(-180, 180, 15)
+        self.dx = self._spin(-300, 300, 35)
+        self.dy = self._spin(-300, 300, 25)
+        self.border_size = self._spin(1, 120, 24)
+        self.fog_strength = self._spin(0, 90, 28)
+        box.addWidget(self._number_control("噪声%", self.noise_amount))
+        box.addWidget(self._number_control("滤波核", self.kernel_size))
+        box.addWidget(self._number_control("角度", self.angle))
+        box.addWidget(self._number_control("平移X", self.dx))
+        box.addWidget(self._number_control("平移Y", self.dy))
+        box.addWidget(self._number_control("边框", self.border_size))
+        box.addWidget(self._number_control("雾化%", self.fog_strength))
+
         grid = QGridLayout()
         actions = [
-            ("高斯噪声", lambda: self.apply(lambda x: ops.add_noise(x, "gaussian"))),
-            ("椒盐噪声", lambda: self.apply(lambda x: ops.add_noise(x, "salt_pepper"))),
-            ("均匀噪声", lambda: self.apply(lambda x: ops.add_noise(x, "uniform"))),
-            ("均值滤波", lambda: self.apply(lambda x: ops.denoise(x, "mean"))),
-            ("中值滤波", lambda: self.apply(lambda x: ops.denoise(x, "median"))),
-            ("高斯滤波", lambda: self.apply(lambda x: ops.denoise(x, "gaussian"))),
-            ("左旋 15°", lambda: self.apply(lambda x: ops.rotate(x, 15))),
-            ("右旋 15°", lambda: self.apply(lambda x: ops.rotate(x, -15))),
+            ("高斯噪声", lambda: self.apply(lambda x: ops.add_noise(x, "gaussian", self.noise_amount.value() / 100))),
+            ("椒盐噪声", lambda: self.apply(lambda x: ops.add_noise(x, "salt_pepper", self.noise_amount.value() / 100))),
+            ("均匀噪声", lambda: self.apply(lambda x: ops.add_noise(x, "uniform", self.noise_amount.value() / 100))),
+            ("均值滤波", lambda: self.apply(lambda x: ops.denoise(x, "mean", self.kernel_size.value()))),
+            ("中值滤波", lambda: self.apply(lambda x: ops.denoise(x, "median", self.kernel_size.value()))),
+            ("高斯滤波", lambda: self.apply(lambda x: ops.denoise(x, "gaussian", self.kernel_size.value()))),
+            ("左旋", lambda: self.apply(lambda x: ops.rotate(x, self.angle.value()))),
+            ("右旋", lambda: self.apply(lambda x: ops.rotate(x, -self.angle.value()))),
             ("水平镜像", lambda: self.apply(lambda x: ops.flip(x, "horizontal"))),
             ("垂直镜像", lambda: self.apply(lambda x: ops.flip(x, "vertical"))),
-            ("平移", lambda: self.apply(lambda x: ops.translate(x, 35, 25))),
+            ("平移", lambda: self.apply(lambda x: ops.translate(x, self.dx.value(), self.dy.value()))),
             ("裁剪选区", self.crop_selection),
             ("锐化", lambda: self.apply(ops.sharpen)),
             ("描边", lambda: self.apply(ops.outline)),
             ("阈值分割", self.threshold_segment),
             ("框选分割", self.grabcut_segment),
-            ("加边框", lambda: self.apply(ops.add_border)),
-            ("雾化", lambda: self.apply(ops.fog)),
+            ("遮罩添加", lambda: self.edit_mask(True)),
+            ("遮罩删除", lambda: self.edit_mask(False)),
+            ("加边框", lambda: self.apply(lambda x: ops.add_border(x, self.border_size.value()))),
+            ("雾化", lambda: self.apply(lambda x: ops.fog(x, self.fog_strength.value() / 100))),
             ("浮雕", lambda: self.apply(ops.emboss)),
             ("艺术文字", lambda: self.apply(ops.add_text)),
             ("测量选区", self.measure_selection),
@@ -198,6 +220,12 @@ class MainWindow(QMainWindow):
         slider.setValue(value)
         return slider
 
+    def _spin(self, lo: int, hi: int, value: int) -> QSpinBox:
+        spin = QSpinBox()
+        spin.setRange(lo, hi)
+        spin.setValue(value)
+        return spin
+
     def _control(self, text: str, slider: QSlider) -> QWidget:
         w = QWidget()
         row = QHBoxLayout(w)
@@ -209,6 +237,14 @@ class MainWindow(QMainWindow):
         row.addWidget(label)
         row.addWidget(slider)
         row.addWidget(value)
+        return w
+
+    def _number_control(self, text: str, spin: QSpinBox) -> QWidget:
+        w = QWidget()
+        row = QHBoxLayout(w)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(QLabel(text))
+        row.addWidget(spin)
         return w
 
     def _style(self):
@@ -234,6 +270,49 @@ class MainWindow(QMainWindow):
             return False
         return True
 
+    def set_current(self, img: np.ndarray, status: str = "", remember: bool = True):
+        if remember and self.current is not None:
+            self.history.append(self.current.copy())
+            self.history = self.history[-20:]
+            self.future.clear()
+        self.current = img
+        self.canvas.set_image(self.current)
+        if status:
+            self.status.setText(status)
+
+    def undo(self):
+        if not self.history or self.current is None:
+            self.status.setText("没有可撤销的操作")
+            return
+        self.future.append(self.current.copy())
+        self.current = self.history.pop()
+        self.canvas.set_image(self.current)
+        self.status.setText("已撤销")
+
+    def redo(self):
+        if not self.future or self.current is None:
+            self.status.setText("没有可重做的操作")
+            return
+        self.history.append(self.current.copy())
+        self.current = self.future.pop()
+        self.canvas.set_image(self.current)
+        self.status.setText("已重做")
+
+    def show_compare(self):
+        if self.original is None or not self.require_image():
+            return
+        self.canvas.set_image(ops.compare_side_by_side(self.original, self.current))
+        self.status.setText("左侧原图，右侧当前结果")
+
+    def show_histogram(self):
+        if not self.require_image():
+            return
+        self.canvas.set_image(ops.histogram_image(self.current))
+        self.status.setText("当前图像灰度直方图")
+
+    def source_rgb(self) -> np.ndarray:
+        return self.current if self.current.ndim == 3 else np.dstack([self.current] * 3)
+
     def open_image(self):
         self._open(False)
 
@@ -248,6 +327,9 @@ class MainWindow(QMainWindow):
             self.current = ops.read_image(path, gray)
             self.original = self.current.copy()
             self.mask = None
+            self.mask_source = None
+            self.history.clear()
+            self.future.clear()
             self.canvas.set_image(self.current)
             self.status.setText(Path(path).name)
         except Exception as exc:
@@ -263,17 +345,15 @@ class MainWindow(QMainWindow):
 
     def restore(self):
         if self.original is not None:
-            self.current = self.original.copy()
+            self.set_current(self.original.copy(), "已恢复原图")
             self.mask = None
-            self.canvas.set_image(self.current)
-            self.status.setText("已恢复原图")
+            self.mask_source = None
 
     def apply(self, fn):
         if not self.require_image():
             return
         try:
-            self.current = fn(self.current)
-            self.canvas.set_image(self.current)
+            self.set_current(fn(self.current))
         except Exception as exc:
             QMessageBox.critical(self, "处理失败", str(exc))
 
@@ -293,20 +373,32 @@ class MainWindow(QMainWindow):
     def threshold_segment(self):
         if not self.require_image():
             return
+        self.mask_source = self.source_rgb().copy()
         self.mask = ops.threshold_mask(self.current)
-        self.current = ops.apply_mask(self.current if self.current.ndim == 3 else np.dstack([self.current] * 3), self.mask)
-        self.canvas.set_image(self.current)
-        self.status.setText("已完成阈值分割")
+        self.set_current(ops.apply_mask(self.mask_source, self.mask), "已完成阈值分割")
 
     def grabcut_segment(self):
         rect = self.canvas.selected_rect_on_image()
         if not rect:
             self.status.setText("请先拖拽框选目标")
             return
-        self.mask = ops.grabcut_mask(self.current, rect)
-        self.current = ops.apply_mask(self.current, self.mask)
-        self.canvas.set_image(self.current)
-        self.status.setText("已完成框选分割")
+        self.mask_source = self.source_rgb().copy()
+        self.mask = ops.grabcut_mask(self.mask_source, rect)
+        self.set_current(ops.apply_mask(self.mask_source, self.mask), "已完成框选分割")
+
+    def edit_mask(self, add: bool):
+        if not self.require_image():
+            return
+        rect = self.canvas.selected_rect_on_image()
+        if not rect:
+            self.status.setText("请先拖拽选择遮罩编辑区域")
+            return
+        if self.mask is None:
+            self.mask_source = self.source_rgb().copy()
+            self.mask = np.zeros(self.current.shape[:2], dtype=np.uint8)
+        self.mask = ops.edit_mask_rect(self.mask, rect, add)
+        source = self.mask_source if self.mask_source is not None else self.source_rgb()
+        self.set_current(ops.apply_mask(source, self.mask), "已添加遮罩区域" if add else "已删除遮罩区域")
 
     def measure_selection(self):
         if self.mask is None:

@@ -165,6 +165,41 @@ def apply_mask(img: np.ndarray, mask: np.ndarray) -> np.ndarray:
     return out
 
 
+def compare_side_by_side(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+    left = left if left.ndim == 3 else np.dstack([left] * 3)
+    right = right if right.ndim == 3 else np.dstack([right] * 3)
+    h = max(left.shape[0], right.shape[0])
+    gap = 1
+
+    def pad(img: np.ndarray) -> np.ndarray:
+        out = np.zeros((h, img.shape[1], 3), dtype=np.uint8)
+        out[: img.shape[0], : img.shape[1]] = img
+        return out
+
+    return np.hstack([pad(left), np.full((h, gap, 3), 80, dtype=np.uint8), pad(right)])
+
+
+def edit_mask_rect(mask: np.ndarray, rect: tuple[int, int, int, int], add: bool = True) -> np.ndarray:
+    x, y, w, h = rect
+    out = mask.copy()
+    y1, y2 = max(0, y), min(out.shape[0], y + max(1, h))
+    x1, x2 = max(0, x), min(out.shape[1], x + max(1, w))
+    out[y1:y2, x1:x2] = 255 if add else 0
+    return out
+
+
+def histogram_image(img: np.ndarray, width: int = 256, height: int = 140) -> np.ndarray:
+    gray = img if img.ndim == 2 else np.round(img.mean(axis=2)).astype(np.uint8)
+    hist = np.bincount(gray.ravel(), minlength=256).astype(np.float32)
+    hist = hist / max(1.0, hist.max())
+    out = np.full((height, width, 3), 18, dtype=np.uint8)
+    for x in range(width):
+        idx = int(x * 256 / width)
+        bar = int(hist[idx] * (height - 8))
+        out[height - bar : height, x] = (87, 199, 255)
+    return out
+
+
 def measure_mask(mask: np.ndarray) -> dict[str, float | tuple[float, float]]:
     binary = mask > 0
     area = int(binary.sum())

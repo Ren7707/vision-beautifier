@@ -33,6 +33,32 @@ class OpsTest(unittest.TestCase):
         self.assertGreater(result["rectangularity"], 0.9)
         self.assertGreater(result["circularity"], 0)
 
+    def test_compare_side_by_side_pads_images_to_same_height(self):
+        left = np.zeros((2, 3, 3), dtype=np.uint8)
+        right = np.ones((4, 2, 3), dtype=np.uint8) * 255
+
+        out = ops.compare_side_by_side(left, right)
+
+        self.assertEqual(out.shape, (4, 6, 3))
+        np.testing.assert_array_equal(out[:2, :3], left)
+
+    def test_edit_mask_adds_and_removes_rectangles(self):
+        mask = np.zeros((5, 5), dtype=np.uint8)
+
+        added = ops.edit_mask_rect(mask, (1, 1, 3, 2), add=True)
+        removed = ops.edit_mask_rect(added, (2, 1, 1, 2), add=False)
+
+        self.assertEqual(int(added.sum() / 255), 6)
+        self.assertEqual(int(removed.sum() / 255), 4)
+
+    def test_histogram_image_returns_rgb_visualization(self):
+        img = np.array([[0, 255], [128, 128]], dtype=np.uint8)
+
+        out = ops.histogram_image(img, width=256, height=100)
+
+        self.assertEqual(out.shape, (100, 256, 3))
+        self.assertEqual(out.dtype, np.uint8)
+
 
 if __name__ == "__main__":
     unittest.main()
